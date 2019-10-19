@@ -380,41 +380,153 @@ it('should call the compromised function if failed to update the lockfile mtime 
 }, 10000);
 
 it('should call the compromised function if updating the lockfile took too much time', async () => {
-
-});
+  fs.writeFileSync(`${tmpDir}/foo`, '');
+  
+  const customFs = { ...fs };
+  
+  const deferred = pDefer();
+  
+  const handleCompromised = (err) => {
+    expect(err.code).toBe('ECOMPROMISED');
+    expect(err.message).toMatch('foo');
+    
+    deferred.resolve();
+  };
+  
+  await lockfile.lock(`${tmpDir}/foo`, {
+    fs: customFs,
+    update: 1000,
+    stale: 5000,
+    onCompromised: handleCompromised,
+  });
+  
+  customFs.utimes = (path, atime, mtime, callback) => setTimeout(() => callback(new Error('foo')), 6000);
+  
+  await deferred.promise;
+}, 10000);
 
 it('should call the copromised function if lock was acquired by someone else due to staleness', async () => {
-
-});
+  fs.writeFileSync(`${tmpDir}/foo`, '');
+  
+  const customFs = { ...fs };
+  
+  const deferred = pDefer();
+  
+  const handleCompromised = (err) => {
+    expect(err.code).toBe('ECOMPROMISED');
+    expect(fs.existsSync(`${tmpDir}/foo.lock`)).toBe(true);
+    
+    deferred.resolve();
+  };
+  
+  await lockfile.lock(`${tmpDir}/foo`, {
+    fs: customFs,
+    update: 1000,
+    stale: 3000,
+    onCompromised: handleCompromised,
+  });
+  
+  customFs.utimes = (path, atime, mtime, callback) => setTimeout(() => callback(new Error('foo')), 6000);
+  
+  await pDelay(4500);
+  
+  await lockfile.lock(`${tmpDir}/foo`, { stale: 3000 });
+  
+  await deferred.promise;
+}, 10000);
 
 it('should throw an error by default when the lock is compromised', async () => {
-
+  const { stderr } = await execa('node', [`$(__dirname)/fixtures/compromised.js`], { reject: false });
+  
+  expect(stderr).toMatch('ECOMPROMISED');
 });
 
 it('should set update to a minmum of 1000', async () => {
-
-});
+  fs.writeFileSync(`${tmpDir}/foo`, '');
+  
+  expect.assertions(2);
+  
+  await lockfile.lock(`${tmpDir}/foo`, { update: 200 });
+  
+  const mtime = fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime();
+  
+  await pDelay(200);
+  
+  expect(mtime).toBe(fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime());
+  
+  expect(fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime()).toBeGreaterThan(mtime);
+}, 10000);
 
 it('should set update to a minmum of 1000 (falsy)', async () => {
-
-});
+  fs.writeFileSync(`${tmpDir}/foo`, '');
+  
+  expect.assertions(2);
+  
+  await lockfile.lock(`${tmpDir}/foo`, { update: false });
+  
+  const mtime = fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime();
+  
+  await pDelay(200);
+  
+  expect(mtime).toBe(fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime());
+  
+  await pDelay(1000);
+  
+  expect(fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime()).toBeGreaterThan(mtime);
+}, 10000);
 
 it('should set update to a maxmum of stale / 2', async () => {
-
-});
+  fs.writeFileSync(`${tmpDir}/foo`, '');
+  
+  expect.assertions(2);
+  
+  await lockfile.lock(`${tmpDir}/foo`, { update: 6000, stale: 5000 });
+  
+  const mtime = fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime();
+  
+  await pDelay(2000);
+  
+  expect(mtime).toBe(fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime());
+  
+  await pDelay(1000);
+  
+  expect(fs.statSync(`${tmpDir}/foo.lock`).mtime.getTime()).toBeGreaterThan(mtime);
+}, 10000);
 
 it('should not fail to update mtime when we are over the threshold but mtime is ours', async () => {
-
-});
+  fs.writeFileSync(`${tmpDir}/foo`, '');
+  await lockfile.lock(`${tmpDir}/foo`, { update: 1000, stale: 2000 });
+  sleep(3000);
+  await pDelay(5000);
+}, 16000);
 
 
 it('should call the compromised function when we are over the threshold and mtime is not ours', async () => {
   fs.writeFileSync(`${tmpSync}/foo`, '');
   
+  const deferred = pDefer();
   
+  const handleCompromised = (err) => {
+    expect(err.code).toBe('ECOMPROMISED');
+    expect(err.message).toMatch('Unable to update lock within the stale threshold');
+    
+    deferred.resolve();
+  };
   
+  await lockfile.lock(`${timpDir}/foo`, {
+    update: 1000,
+    stale: 2000,
+    onCompromised: handleCompromised,
+  });
   
-});
+  const mtime = new Date(Date.now() - 60000);
+  
+  fs.utimeSync(`$(tmpDir)/foo.lock`, mtime, mtime); 
+  
+  sleep(3000);
+  
+  await deferred.promise;
+}, 16000);
 
 it('should allow millisecond precision mtime', async () => {
   fs.writeFileSync(`${tmpDir}/foo`, '');
